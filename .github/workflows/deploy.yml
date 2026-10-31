@@ -1,0 +1,39 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to Dokku
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger deployment
+        run: |
+          http_code=$(curl -s -w "%{http_code}" -o response.json \
+            -X POST https://server.tooangel.com/deploy/wilken-rocks \
+            -H "Authorization: Bearer ${{ secrets.WILKEN_ROCKS_DEPLOY_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"repository": "${{ github.repository }}", "commit": "${{ github.sha }}", "branch": "${{ github.ref_name }}"}')
+          echo "HTTP status: $http_code"
+          cat response.json
+          [ "$http_code" -eq 200 ]
+
+      - name: Verify the live page matches this commit
+        run: |
+          expected=$(sha256sum index.html | cut -d' ' -f1)
+          for attempt in $(seq 1 20); do
+            live=$(curl -sf https://www.wilken.rocks/ | sha256sum | cut -d' ' -f1 || true)
+            if [ "$live" = "$expected" ]; then
+              echo "Live page matches ${{ github.sha }}"
+              exit 0
+            fi
+            echo "Attempt $attempt: not live yet"
+            sleep 30
+          done
+          echo "Live page does not match after 10 minutes"
+          exit 1
